@@ -2,7 +2,7 @@
 -- Versão sem verificação de gamepass
 
 -- Carregar Fluent Plus (substitua com o link do seu repositório)
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/free445567/fluentplus/refs/heads/main/fluentplus"))()
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/discoart/FluentPlus/refs/heads/main/release.lua""))()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
