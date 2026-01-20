@@ -1,8 +1,22 @@
 -- Ghost Hub Premium - Fluent Plus Edition
 -- Versão sem verificação de gamepass
 
--- Carregar Fluent Plus (substitua com o link do seu repositório)
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/discoart/FluentPlus/refs/heads/main/Beta.lua"))()
+-- Carregar Fluent Plus
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/discoart/FluentPlus/refs/heads/main/release.lua"))()
+
+-- Verificar se carregou corretamente
+if not Fluent then
+    game.StarterGui:SetCore("SendNotification", {
+        Title = "Erro Fatal",
+        Text = "Fluent Plus não carregou!",
+        Duration = 5
+    })
+    return
+end
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local StarterGui = game:GetService("StarterGui")
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
