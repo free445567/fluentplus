@@ -1,22 +1,44 @@
--- Ghost Hub Premium - Fluent Plus Edition
+-- Ghost Hub Premium - Fluent Plus Edition (CORRIGIDO)
 -- Versão sem verificação de gamepass
 
--- Carregar Fluent Plus
-local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/discoart/FluentPlus/refs/heads/main/release.lua"))()
+-- ============================================================================
+-- CARREGAR FLUENT PLUS
+-- ============================================================================
 
--- Verificar se carregou corretamente
-if not Fluent then
-    game.StarterGui:SetCore("SendNotification", {
-        Title = "Erro Fatal",
-        Text = "Fluent Plus não carregou!",
-        Duration = 5
-    })
-    return
+local Fluent, SaveManager, InterfaceManager
+
+-- Sistema de fallback automático
+local FluentURLs = {
+    {name = "Beta (Recommended)", url = "https://raw.githubusercontent.com/discoart/FluentPlus/refs/heads/main/Beta.lua"},
+    {name = "Stable", url = "https://raw.githubusercontent.com/discoart/FluentPlus/refs/heads/main/release.lua"},
+    {name = "Alpha", url = "https://raw.githubusercontent.com/discoart/FluentPlus/refs/heads/main/alpha.lua"}
+}
+
+local function LoadFluentPlus()
+    for i, source in ipairs(FluentURLs) do
+        local success, result1, result2, result3 = pcall(function()
+            print("[Ghost Hub] Tentando carregar: " .. source.name)
+            return loadstring(game:HttpGet(source.url))()
+        end)
+        
+        if success and result1 then
+            print("[Ghost Hub] ✅ Carregado com sucesso: " .. source.name)
+            return result1, result2, result3
+        else
+            warn("[Ghost Hub] ❌ Falhou ao carregar: " .. source.name)
+        end
+    end
+    
+    error("[Ghost Hub] ERRO: Nenhuma URL do Fluent Plus funcionou!")
 end
 
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local StarterGui = game:GetService("StarterGui")
+Fluent, SaveManager, InterfaceManager = LoadFluentPlus()
+
+if not Fluent then
+    error("[Ghost Hub] ERRO: Fluent é nil!")
+end
+
+print("[Ghost Hub] ✅ Fluent carregado, iniciando configuração...")
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -27,11 +49,21 @@ local StarterGui = game:GetService("StarterGui")
 -- ============================================================================
 
 local function Notify(title, text, duration)
-    Fluent:Notify({
-        Title = title,
-        Content = text,
-        Duration = duration or 5
-    })
+    pcall(function()
+        if Fluent and Fluent.Notify then
+            Fluent:Notify({
+                Title = title,
+                Content = text,
+                Duration = duration or 5
+            })
+        else
+            StarterGui:SetCore("SendNotification", {
+                Title = title,
+                Text = text,
+                Duration = duration or 5
+            })
+        end
+    end)
 end
 
 local function abbreviatePing(ping)
@@ -141,7 +173,7 @@ end
 Notify("Ghost Hub Premium", "Loading interface...", 3)
 
 -- ============================================================================
--- CRIAR JANELA PRINCIPAL
+-- CRIAR JANELA PRINCIPAL (MÉTODO CORRIGIDO PARA FLUENT PLUS)
 -- ============================================================================
 
 local Window = Fluent:CreateWindow({
@@ -149,10 +181,9 @@ local Window = Fluent:CreateWindow({
     SubTitle = "by Darkxz",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
-    Acrylic = true,
-    Theme = "Darker",
-    MinimizeKey = Enum.KeyCode.LeftControl,
-    Icon = "ghost"
+    Acrylic = false, -- Desabilitado para evitar erros
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
 })
 
 -- Criar abas
@@ -161,7 +192,7 @@ local Tabs = {
     Dupe = Window:AddTab({ Title = "Dupe", Icon = "copy" }),
     Misc = Window:AddTab({ Title = "Misc", Icon = "settings" }),
     Teleports = Window:AddTab({ Title = "Teleports", Icon = "map-pin" }),
-    Stats = Window:AddTab({ Title = "Stats", Icon = "trending-up" }),
+    Stats = Window:AddTab({ Title = "Stats", Icon = "activity" }),
     Settings = Window:AddTab({ Title = "Settings", Icon = "sliders" })
 }
 
@@ -211,7 +242,7 @@ end)
 -- ABA MAIN - WEIGHT MANAGEMENT
 -- ============================================================================
 
-local MainSection = Tabs.Main:AddSection("Weight Management", "dumbbell")
+local MainSection = Tabs.Main:AddSection("Weight Management")
 
 local waitTimeParagraph = Tabs.Main:AddParagraph({
     Title = "Wait Time",
@@ -271,49 +302,50 @@ spawn(function()
     end
 end)
 
-Tabs.Main:AddToggle("EquipToggle", {
+local EquipToggle = Tabs.Main:AddToggle("EquipToggle", {
     Title = "Equip Weights",
     Description = "Equip all Double Weights from backpack",
-    Default = false,
-    Callback = function(value)
-        _G.Equip = value
-        if value then
-            Notify("Equip", "Equipping weights...", 3)
-            spawn(function()
-                pcall(function()
-                    local equipped = 0
-                    local batchCount = 0
-                    
-                    local itemsToEquip = {}
-                    for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
-                        if item.Name == "Double Weight" then
-                            table.insert(itemsToEquip, item)
-                        end
-                    end
-                    
-                    for _, item in pairs(itemsToEquip) do
-                        item.Parent = LocalPlayer.Character
-                        if item:FindFirstChild("Handle") then
-                            item.Handle.CanCollide = false
-                            item.Handle.Massless = true
-                            item.Handle.Transparency = 1
-                        end
-                        equipped = equipped + 1
-                        batchCount = batchCount + 1
-                        
-                        if batchCount >= 100 then
-                            wait(0.05)
-                            batchCount = 0
-                        end
-                    end
-                    
-                    wait(0.1)
-                    Notify("Equip", "Equipped " .. equipped .. " weights", 3)
-                end)
-            end)
-        end
-    end
+    Default = false
 })
+
+EquipToggle:OnChanged(function(value)
+    _G.Equip = value
+    if value then
+        Notify("Equip", "Equipping weights...", 3)
+        spawn(function()
+            pcall(function()
+                local equipped = 0
+                local batchCount = 0
+                
+                local itemsToEquip = {}
+                for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+                    if item.Name == "Double Weight" then
+                        table.insert(itemsToEquip, item)
+                    end
+                end
+                
+                for _, item in pairs(itemsToEquip) do
+                    item.Parent = LocalPlayer.Character
+                    if item:FindFirstChild("Handle") then
+                        item.Handle.CanCollide = false
+                        item.Handle.Massless = true
+                        item.Handle.Transparency = 1
+                    end
+                    equipped = equipped + 1
+                    batchCount = batchCount + 1
+                    
+                    if batchCount >= 100 then
+                        wait(0.05)
+                        batchCount = 0
+                    end
+                end
+                
+                wait(0.1)
+                Notify("Equip", "Equipped " .. equipped .. " weights", 3)
+            end)
+        end)
+    end
+end)
 
 -- Farm Loop
 local function farmLoop()
@@ -338,81 +370,85 @@ local function farmLoop()
     _G.farmActive = false
 end
 
-Tabs.Main:AddToggle("FarmToggle", {
+local FarmToggle = Tabs.Main:AddToggle("FarmToggle", {
     Title = "Start Farm",
     Description = "Start farming with equipped weights",
-    Default = false,
-    Callback = function(value)
-        if value then
-            local hasEquippedWeights = false
-            pcall(function()
-                if LocalPlayer.Character then
-                    for _, item in pairs(LocalPlayer.Character:GetChildren()) do
-                        if item.Name == "Double Weight" then
-                            hasEquippedWeights = true
-                            break
-                        end
+    Default = false
+})
+
+FarmToggle:OnChanged(function(value)
+    if value then
+        local hasEquippedWeights = false
+        pcall(function()
+            if LocalPlayer.Character then
+                for _, item in pairs(LocalPlayer.Character:GetChildren()) do
+                    if item.Name == "Double Weight" then
+                        hasEquippedWeights = true
+                        break
                     end
                 end
-            end)
-            
-            if not hasEquippedWeights then
-                Notify("Farm", "Equip weights first!", 3)
-                Fluent.Options.FarmToggle:SetValue(false)
-                return
             end
-            
-            _G.farmEnabled = true
-            _G.farmActive = true
-            Notify("Farm", "Started!", 3)
-            spawn(farmLoop)
-        else
-            _G.farmEnabled = false
-            _G.farmActive = false
-            Notify("Farm", "Stopped!", 3)
+        end)
+        
+        if not hasEquippedWeights then
+            Notify("Farm", "Equip weights first!", 3)
+            FarmToggle:SetValue(false)
+            return
         end
+        
+        _G.farmEnabled = true
+        _G.farmActive = true
+        Notify("Farm", "Started!", 3)
+        spawn(farmLoop)
+    else
+        _G.farmEnabled = false
+        _G.farmActive = false
+        Notify("Farm", "Stopped!", 3)
     end
-})
+end)
 
-Tabs.Main:AddToggle("AutoFarmToggle", {
+local AutoFarmToggle = Tabs.Main:AddToggle("AutoFarmToggle", {
     Title = "Auto Farm After Dupe",
     Description = "Automatically start farming after dupe finishes",
-    Default = false,
-    Callback = function(value)
-        _G.autoFarmAfterDupe = value
-    end
+    Default = false
 })
 
--- PING LIMITER SECTION
-local PingSection = Tabs.Main:AddSection("Ping Limiter", "wifi")
+AutoFarmToggle:OnChanged(function(value)
+    _G.autoFarmAfterDupe = value
+end)
 
-Tabs.Main:AddInput("PingLimitInput", {
+-- PING LIMITER SECTION
+local PingSection = Tabs.Main:AddSection("Ping Limiter")
+
+local PingLimitInput = Tabs.Main:AddInput("PingLimitInput", {
     Title = "Ping Limit",
     Description = "Set ping limit (15000-30000)",
     Default = "25000",
     Placeholder = "Enter ping limit...",
     Numeric = true,
-    Finished = true,
-    Callback = function(value)
-        local num = tonumber(value)
-        if num and num >= 15000 and num <= 30000 then
-            _G.customPingLimit = num
-            local abbreviated = abbreviatePing(num)
-            Notify("Ping Limit", "Set to " .. abbreviated .. "ms", 3)
-        else
-            Notify("Error", "Ping limit must be between 15k-30k", 3)
-        end
-    end
+    Finished = true
 })
 
-Tabs.Main:AddToggle("PingLimiterToggle", {
+PingLimitInput:OnChanged(function(value)
+    local num = tonumber(value)
+    if num and num >= 15000 and num <= 30000 then
+        _G.customPingLimit = num
+        local abbreviated = abbreviatePing(num)
+        Notify("Ping Limit", "Set to " .. abbreviated .. "ms", 3)
+    else
+        Notify("Error", "Ping limit must be between 15k-30k", 3)
+    end
+end)
+
+local PingLimiterToggle = Tabs.Main:AddToggle("PingLimiterToggle", {
     Title = "Enable Ping Limiter",
     Description = "Pause farm when ping is too high",
-    Default = false,
-    Callback = function(value)
-        _G.pingLimiterEnabled = value
-    end
+    Default = false
 })
+
+PingLimiterToggle:OnChanged(function(value)
+    _G.pingLimiterEnabled = value
+end)
 
 local pingLimiterStatus = Tabs.Main:AddParagraph({
     Title = "Limiter Status",
@@ -445,7 +481,7 @@ local isDuping = false
 local remainingDupes = 0
 local customDupeAmount = 0
 
-local DupeSection = Tabs.Dupe:AddSection("Dupe System", "copy")
+local DupeSection = Tabs.Dupe:AddSection("Dupe System")
 
 local dupeTimeParagraph = Tabs.Dupe:AddParagraph({
     Title = "Dupe Timer",
@@ -560,21 +596,22 @@ local function startDuping(amount)
     end)
 end
 
-Tabs.Dupe:AddInput("DupeAmountInput", {
+local DupeAmountInput = Tabs.Dupe:AddInput("DupeAmountInput", {
     Title = "Dupe Amount",
     Description = "Enter custom dupe amount",
     Default = "",
     Placeholder = "Enter amount...",
     Numeric = true,
-    Finished = true,
-    Callback = function(value)
-        local num = tonumber(value)
-        if num and num > 0 then
-            customDupeAmount = num
-            Notify("Dupe", "Amount set to " .. num, 3)
-        end
-    end
+    Finished = true
 })
+
+DupeAmountInput:OnChanged(function(value)
+    local num = tonumber(value)
+    if num and num > 0 then
+        customDupeAmount = num
+        Notify("Dupe", "Amount set to " .. num, 3)
+    end
+end)
 
 Tabs.Dupe:AddButton({
     Title = "Start / Stop Dupe",
@@ -593,7 +630,7 @@ Tabs.Dupe:AddButton({
     end
 })
 
-local QuickDupeSection = Tabs.Dupe:AddSection("Quick Dupe", "zap")
+local QuickDupeSection = Tabs.Dupe:AddSection("Quick Dupe")
 
 Tabs.Dupe:AddButton({
     Title = "Dupe 830",
@@ -615,7 +652,7 @@ Tabs.Dupe:AddButton({
 -- ABA MISC
 -- ============================================================================
 
-local OptimizationSection = Tabs.Misc:AddSection("Optimization", "zap")
+local OptimizationSection = Tabs.Misc:AddSection("Optimization")
 
 Tabs.Misc:AddButton({
     Title = "Delete All + Anti AFK",
@@ -694,7 +731,7 @@ Tabs.Misc:AddButton({
     end
 })
 
-local VisualSection = Tabs.Misc:AddSection("Visual", "eye")
+local VisualSection = Tabs.Misc:AddSection("Visual")
 
 local isDay = true
 Tabs.Misc:AddButton({
@@ -731,21 +768,22 @@ Tabs.Misc:AddButton({
     end
 })
 
-Tabs.Misc:AddToggle("AnchorPlayerToggle", {
+local AnchorPlayerToggle = Tabs.Misc:AddToggle("AnchorPlayerToggle", {
     Title = "Anchor Player",
     Description = "Anchor your character in place",
-    Default = false,
-    Callback = function(value)
-        pcall(function()
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                LocalPlayer.Character.HumanoidRootPart.Anchored = value
-            end
-        end)
-    end
+    Default = false
 })
 
+AnchorPlayerToggle:OnChanged(function(value)
+    pcall(function()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.Anchored = value
+        end
+    end)
+end)
+
 -- COMBAT SECTION
-local CombatSection = Tabs.Misc:AddSection("Combat", "sword")
+local CombatSection = Tabs.Misc:AddSection("Combat")
 
 local lastAttackerParagraph = Tabs.Misc:AddParagraph({
     Title = "Last Attacker",
@@ -777,14 +815,15 @@ spawn(function()
     end)
 end)
 
-Tabs.Misc:AddToggle("AntiHitToggle", {
+local AntiHitToggle = Tabs.Misc:AddToggle("AntiHitToggle", {
     Title = "Anti-Hit",
     Description = "Automatically counter attack when hit",
-    Default = false,
-    Callback = function(value)
-        _G.antiHitEnabled = value
-    end
+    Default = false
 })
+
+AntiHitToggle:OnChanged(function(value)
+    _G.antiHitEnabled = value
+end)
 
 -- Sistema Anti-Hit
 spawn(function()
@@ -831,27 +870,28 @@ spawn(function()
 end)
 
 -- LOOP KILL SECTION
-local LoopKillSection = Tabs.Misc:AddSection("Loop Kill", "target")
+local LoopKillSection = Tabs.Misc:AddSection("Loop Kill")
 
 local playerDropdown = Tabs.Misc:AddDropdown("PlayerDropdown", {
     Title = "Select Target",
     Description = "Choose player for loop kill",
     Values = getAllPlayerNames(),
     Multi = false,
-    Default = nil,
-    Callback = function(value)
-        if value and value ~= "" then
-            local targetPlayer = Players:FindFirstChild(value)
-            if targetPlayer then
-                _G.loopKillTarget = targetPlayer
-            else
-                _G.loopKillTarget = nil
-            end
+    Default = nil
+})
+
+playerDropdown:OnChanged(function(value)
+    if value and value ~= "" then
+        local targetPlayer = Players:FindFirstChild(value)
+        if targetPlayer then
+            _G.loopKillTarget = targetPlayer
         else
             _G.loopKillTarget = nil
         end
+    else
+        _G.loopKillTarget = nil
     end
-})
+end)
 
 -- Atualizar lista de players
 spawn(function()
@@ -875,7 +915,7 @@ Players.PlayerRemoving:Connect(function(player)
     if _G.loopKillTarget == player then
         _G.loopKillTarget = nil
         _G.loopKillEnabled = false
-        Fluent.Options.LoopKillToggle:SetValue(false)
+        LoopKillToggle:SetValue(false)
     end
     wait(0.5)
     pcall(function()
@@ -884,19 +924,20 @@ Players.PlayerRemoving:Connect(function(player)
     end)
 end)
 
-Tabs.Misc:AddToggle("LoopKillToggle", {
+local LoopKillToggle = Tabs.Misc:AddToggle("LoopKillToggle", {
     Title = "Loop Kill",
     Description = "Continuously attack selected target",
-    Default = false,
-    Callback = function(value)
-        if value and not _G.loopKillTarget then
-            Notify("Loop Kill", "Select a target first!", 3)
-            Fluent.Options.LoopKillToggle:SetValue(false)
-            return
-        end
-        _G.loopKillEnabled = value
-    end
+    Default = false
 })
+
+LoopKillToggle:OnChanged(function(value)
+    if value and not _G.loopKillTarget then
+        Notify("Loop Kill", "Select a target first!", 3)
+        LoopKillToggle:SetValue(false)
+        return
+    end
+    _G.loopKillEnabled = value
+end)
 
 -- Sistema Loop Kill
 spawn(function()
@@ -933,7 +974,7 @@ end)
 -- ABA TELEPORTS
 -- ============================================================================
 
-local TeleportSection = Tabs.Teleports:AddSection("Teleport Options", "map-pin")
+local TeleportSection = Tabs.Teleports:AddSection("Teleport Options")
 
 Tabs.Teleports:AddButton({
     Title = "TP High",
@@ -973,7 +1014,7 @@ Tabs.Teleports:AddButton({
 -- ABA STATS
 -- ============================================================================
 
-local StatsSection = Tabs.Stats:AddSection("Strength Statistics", "trending-up")
+local StatsSection = Tabs.Stats:AddSection("Strength Statistics")
 
 local totalStrengthParagraph = Tabs.Stats:AddParagraph({
     Title = "Total Strength",
@@ -990,7 +1031,7 @@ local farmTimeParagraph = Tabs.Stats:AddParagraph({
     Content = "0 Seconds"
 })
 
-local RatesSection = Tabs.Stats:AddSection("Gain Rates", "activity")
+local RatesSection = Tabs.Stats:AddSection("Gain Rates")
 
 local spsParagraph = Tabs.Stats:AddParagraph({
     Title = "Strength Per Second",
@@ -1130,48 +1171,68 @@ end)
 -- ABA SETTINGS
 -- ============================================================================
 
-local InterfaceSection = Tabs.Settings:AddSection("Interface", "monitor")
+local InterfaceSection = Tabs.Settings:AddSection("Interface")
 
-Tabs.Settings:AddToggle("TransparencyToggle", {
+local TransparencyToggle = Tabs.Settings:AddToggle("TransparencyToggle", {
     Title = "Transparency",
     Description = "Toggle window transparency",
-    Default = false,
-    Callback = function(value)
-        Fluent:ToggleTransparency(value)
-    end
+    Default = false
 })
 
-Tabs.Settings:AddKeybind("MinimizeKeybind", {
+TransparencyToggle:OnChanged(function(value)
+    pcall(function()
+        if Fluent.ToggleTransparency then
+            Fluent:ToggleTransparency(value)
+        end
+    end)
+end)
+
+local MinimizeKeybind = Tabs.Settings:AddKeybind("MinimizeKeybind", {
     Title = "Minimize Key",
     Description = "Set key to minimize interface",
     Default = "LeftControl"
 })
 
-Fluent.MinimizeKeybind = Fluent.Options.MinimizeKeybind
+MinimizeKeybind:OnChanged(function(value)
+    pcall(function()
+        Fluent.MinimizeKeybind = value
+    end)
+end)
 
-local ThemeSection = Tabs.Settings:AddSection("Theme", "palette")
+local ThemeSection = Tabs.Settings:AddSection("Theme")
 
 local ThemeDropdown = Tabs.Settings:AddDropdown("ThemeDropdown", {
     Title = "Select Theme",
     Description = "Change interface theme",
-    Values = Fluent.Themes,
-    Default = "Darker",
-    Callback = function(value)
-        Fluent:SetTheme(value)
-        Notify("Theme", "Changed to " .. value, 2)
-    end
+    Values = {"Dark", "Darker", "Light", "Aqua", "Amethyst", "Rose"},
+    Multi = false,
+    Default = "Dark"
 })
 
-Tabs.Settings:AddToggle("AcrylicToggle", {
+ThemeDropdown:OnChanged(function(value)
+    pcall(function()
+        if Fluent.SetTheme then
+            Fluent:SetTheme(value)
+            Notify("Theme", "Changed to " .. value, 2)
+        end
+    end)
+end)
+
+local AcrylicToggle = Tabs.Settings:AddToggle("AcrylicToggle", {
     Title = "Acrylic Effect",
     Description = "Enable acrylic blur effect (requires graphic quality 8+)",
-    Default = true,
-    Callback = function(value)
-        Fluent:ToggleAcrylic(value)
-    end
+    Default = false
 })
 
-local InfoSection = Tabs.Settings:AddSection("Information", "info")
+AcrylicToggle:OnChanged(function(value)
+    pcall(function()
+        if Fluent.ToggleAcrylic then
+            Fluent:ToggleAcrylic(value)
+        end
+    end)
+end)
+
+local InfoSection = Tabs.Settings:AddSection("Information")
 
 Tabs.Settings:AddParagraph({
     Title = "Ghost Hub Premium",
@@ -1187,7 +1248,7 @@ Tabs.Settings:AddButton({
     end
 })
 
-local CreditsSection = Tabs.Settings:AddSection("Credits", "users")
+local CreditsSection = Tabs.Settings:AddSection("Credits")
 
 Tabs.Settings:AddParagraph({
     Title = "Development",
@@ -1201,3 +1262,5 @@ Tabs.Settings:AddParagraph({
 wait(1)
 Notify("Ghost Hub Premium", "Successfully loaded!", 5)
 Notify("Welcome", "Enjoy your premium experience!", 3)
+
+print("[Ghost Hub] ✅ Script totalmente carregado!")
