@@ -1,0 +1,1189 @@
+-- Ghost Hub Premium - Fluent Plus Edition
+-- Versão sem verificação de gamepass
+
+-- Carregar Fluent Plus (substitua com o link do seu repositório)
+local Fluent = loadstring(game:HttpGet("https://raw.githubusercontent.com/seu-repositorio/fluent-plus.lua"))()
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local StarterGui = game:GetService("StarterGui")
+
+-- ============================================================================
+-- FUNÇÕES AUXILIARES
+-- ============================================================================
+
+local function Notify(title, text, duration)
+    Fluent:Notify({
+        Title = title,
+        Content = text,
+        Duration = duration or 5
+    })
+end
+
+local function abbreviatePing(ping)
+    if ping >= 1000 then
+        return string.format("%.1fk", ping / 1000)
+    else
+        return tostring(math.floor(ping))
+    end
+end
+
+local function formatWaitTime(waitTime)
+    if waitTime < 0.001 then
+        return string.format("%.6f", waitTime)
+    elseif waitTime < 0.01 then
+        return string.format("%.5f", waitTime)
+    elseif waitTime < 0.1 then
+        return string.format("%.4f", waitTime)
+    elseif waitTime < 1 then
+        return string.format("%.3f", waitTime)
+    elseif waitTime < 10 then
+        return string.format("%.2f", waitTime)
+    else
+        return string.format("%.1f", waitTime)
+    end
+end
+
+local function formatWaitTimeSmart(waitTime)
+    local formatted = formatWaitTime(waitTime)
+    formatted = formatted:gsub("(%d)0+$", "%1")
+    formatted = formatted:gsub("%.$", "")
+    return formatted
+end
+
+local function countAllWeights()
+    local count = 0
+    pcall(function()
+        for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+            if item.Name == "Double Weight" then 
+                count = count + 1 
+            end
+        end
+        if LocalPlayer.Character then
+            for _, item in pairs(LocalPlayer.Character:GetChildren()) do
+                if item.Name == "Double Weight" then 
+                    count = count + 1 
+                end
+            end
+        end
+    end)
+    return count
+end
+
+local function calculateWaitTime()
+    local weightCount = countAllWeights()
+    local baseWait = 0.0008
+    local waitTime = baseWait * weightCount
+    
+    if waitTime < 0.001 then
+        return waitTime
+    elseif waitTime < 0.01 then
+        return math.floor(waitTime * 100000) / 100000
+    elseif waitTime < 0.1 then
+        return math.floor(waitTime * 10000) / 10000
+    else
+        return math.floor(waitTime * 1000) / 1000
+    end
+end
+
+local function getCurrentPing()
+    local Stats = game:GetService("Stats")
+    local pingValue = Stats.Network.ServerStatsItem["Data Ping"]
+    if pingValue then
+        return tonumber(pingValue:GetValue()) or 0
+    end
+    return 0
+end
+
+local function formatNumberAbbrev(num, decimals)
+    decimals = decimals or 2
+    local suffixes = {"", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"}
+    local index = 1
+    local value = num
+    while value >= 1000 and index < #suffixes do
+        value = value / 1000
+        index = index + 1
+    end
+    if index > 1 then
+        local multiplier = 10 ^ decimals
+        return string.format("%." .. decimals .. "f%s", math.floor(value * multiplier) / multiplier, suffixes[index])
+    else
+        return tostring(math.floor(num))
+    end
+end
+
+local function getAllPlayerNames()
+    local playerNames = {}
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            table.insert(playerNames, player.Name)
+        end
+    end
+    table.sort(playerNames)
+    return playerNames
+end
+
+-- Notificação inicial
+Notify("Ghost Hub Premium", "Loading interface...", 3)
+
+-- ============================================================================
+-- CRIAR JANELA PRINCIPAL
+-- ============================================================================
+
+local Window = Fluent:CreateWindow({
+    Title = "Ghost Hub Premium",
+    SubTitle = "by Darkxz",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl,
+    Icon = "ghost"
+})
+
+-- Criar abas
+local Tabs = {
+    Main = Window:AddTab({ Title = "Main", Icon = "home" }),
+    Dupe = Window:AddTab({ Title = "Dupe", Icon = "copy" }),
+    Misc = Window:AddTab({ Title = "Misc", Icon = "settings" }),
+    Teleports = Window:AddTab({ Title = "Teleports", Icon = "map-pin" }),
+    Stats = Window:AddTab({ Title = "Stats", Icon = "trending-up" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "sliders" })
+}
+
+Window:SelectTab(1)
+
+-- ============================================================================
+-- VARIÁVEIS GLOBAIS
+-- ============================================================================
+
+_G.Equip = false
+_G.farmEnabled = false
+_G.farmActive = false
+_G.customPingLimit = 25000
+_G.antiHitEnabled = false
+_G.loopKillTarget = nil
+_G.loopKillEnabled = false
+_G.autoFarmAfterDupe = false
+_G.lastAttacker = nil
+_G.pingLimiterEnabled = false
+_G.isPingPaused = false
+_G.autoFarmDupeActive = false
+
+-- Sistema de ping limiter em background
+spawn(function()
+    while wait(1.5) do
+        if _G.pingLimiterEnabled and _G.farmActive then
+            pcall(function()
+                local currentPing = getCurrentPing()
+                local abbreviatedPing = abbreviatePing(currentPing)
+                
+                if currentPing >= _G.customPingLimit and not _G.isPingPaused then
+                    _G.isPingPaused = true
+                    Notify("Ping Limiter", "PAUSED - " .. abbreviatedPing .. "ms", 3)
+                    
+                elseif currentPing < 3000 and _G.isPingPaused then
+                    _G.isPingPaused = false
+                    Notify("Ping Limiter", "RESUMED - " .. abbreviatedPing .. "ms", 3)
+                end
+            end)
+        else
+            _G.isPingPaused = false
+        end
+    end
+end)
+
+-- ============================================================================
+-- ABA MAIN - WEIGHT MANAGEMENT
+-- ============================================================================
+
+local MainSection = Tabs.Main:AddSection("Weight Management", "dumbbell")
+
+local waitTimeParagraph = Tabs.Main:AddParagraph({
+    Title = "Wait Time",
+    Content = "0"
+})
+
+local weightsParagraph = Tabs.Main:AddParagraph({
+    Title = "Weights",
+    Content = "0"
+})
+
+-- Atualizar Wait Time
+local lastWeightCount = -1
+spawn(function()
+    while wait(1) do
+        pcall(function()
+            local weightCount = countAllWeights()
+            if weightCount ~= lastWeightCount then
+                lastWeightCount = weightCount
+                local waitTime = calculateWaitTime()
+                local formattedTime = formatWaitTimeSmart(waitTime)
+                waitTimeParagraph:SetTitle("Wait Time")
+                waitTimeParagraph:SetDesc(formattedTime .. "s")
+            end
+        end)
+    end
+end)
+
+-- Atualizar contagem de weights
+spawn(function()
+    while wait(1) do
+        pcall(function()
+            local backpackCount = 0
+            for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+                if item.Name == "Double Weight" then
+                    backpackCount = backpackCount + 1
+                end
+            end
+            
+            local equippedCount = 0
+            if LocalPlayer.Character then
+                for _, item in pairs(LocalPlayer.Character:GetChildren()) do
+                    if item.Name == "Double Weight" then
+                        equippedCount = equippedCount + 1
+                    end
+                end
+            end
+            
+            if backpackCount > 0 then
+                weightsParagraph:SetTitle("Weights (Backpack)")
+                weightsParagraph:SetDesc(tostring(backpackCount))
+            else
+                weightsParagraph:SetTitle("Weights (Equipped)")
+                weightsParagraph:SetDesc(tostring(equippedCount))
+            end
+        end)
+    end
+end)
+
+Tabs.Main:AddToggle("EquipToggle", {
+    Title = "Equip Weights",
+    Description = "Equip all Double Weights from backpack",
+    Default = false,
+    Callback = function(value)
+        _G.Equip = value
+        if value then
+            Notify("Equip", "Equipping weights...", 3)
+            spawn(function()
+                pcall(function()
+                    local equipped = 0
+                    local batchCount = 0
+                    
+                    local itemsToEquip = {}
+                    for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+                        if item.Name == "Double Weight" then
+                            table.insert(itemsToEquip, item)
+                        end
+                    end
+                    
+                    for _, item in pairs(itemsToEquip) do
+                        item.Parent = LocalPlayer.Character
+                        if item:FindFirstChild("Handle") then
+                            item.Handle.CanCollide = false
+                            item.Handle.Massless = true
+                            item.Handle.Transparency = 1
+                        end
+                        equipped = equipped + 1
+                        batchCount = batchCount + 1
+                        
+                        if batchCount >= 100 then
+                            wait(0.05)
+                            batchCount = 0
+                        end
+                    end
+                    
+                    wait(0.1)
+                    Notify("Equip", "Equipped " .. equipped .. " weights", 3)
+                end)
+            end)
+        end
+    end
+})
+
+-- Farm Loop
+local function farmLoop()
+    while _G.farmEnabled do
+        pcall(function()
+            if not _G.isPingPaused then
+                local waitTime = calculateWaitTime()
+                task.wait(waitTime)
+                
+                if LocalPlayer.Character then
+                    for _, item in pairs(LocalPlayer.Character:GetChildren()) do
+                        if item.Name == "Double Weight" then
+                            item:Activate()
+                        end
+                    end
+                end
+            else
+                task.wait(0.5)
+            end
+        end)
+    end
+    _G.farmActive = false
+end
+
+Tabs.Main:AddToggle("FarmToggle", {
+    Title = "Start Farm",
+    Description = "Start farming with equipped weights",
+    Default = false,
+    Callback = function(value)
+        if value then
+            local hasEquippedWeights = false
+            pcall(function()
+                if LocalPlayer.Character then
+                    for _, item in pairs(LocalPlayer.Character:GetChildren()) do
+                        if item.Name == "Double Weight" then
+                            hasEquippedWeights = true
+                            break
+                        end
+                    end
+                end
+            end)
+            
+            if not hasEquippedWeights then
+                Notify("Farm", "Equip weights first!", 3)
+                Fluent.Options.FarmToggle:SetValue(false)
+                return
+            end
+            
+            _G.farmEnabled = true
+            _G.farmActive = true
+            Notify("Farm", "Started!", 3)
+            spawn(farmLoop)
+        else
+            _G.farmEnabled = false
+            _G.farmActive = false
+            Notify("Farm", "Stopped!", 3)
+        end
+    end
+})
+
+Tabs.Main:AddToggle("AutoFarmToggle", {
+    Title = "Auto Farm After Dupe",
+    Description = "Automatically start farming after dupe finishes",
+    Default = false,
+    Callback = function(value)
+        _G.autoFarmAfterDupe = value
+    end
+})
+
+-- PING LIMITER SECTION
+local PingSection = Tabs.Main:AddSection("Ping Limiter", "wifi")
+
+Tabs.Main:AddInput("PingLimitInput", {
+    Title = "Ping Limit",
+    Description = "Set ping limit (15000-30000)",
+    Default = "25000",
+    Placeholder = "Enter ping limit...",
+    Numeric = true,
+    Finished = true,
+    Callback = function(value)
+        local num = tonumber(value)
+        if num and num >= 15000 and num <= 30000 then
+            _G.customPingLimit = num
+            local abbreviated = abbreviatePing(num)
+            Notify("Ping Limit", "Set to " .. abbreviated .. "ms", 3)
+        else
+            Notify("Error", "Ping limit must be between 15k-30k", 3)
+        end
+    end
+})
+
+Tabs.Main:AddToggle("PingLimiterToggle", {
+    Title = "Enable Ping Limiter",
+    Description = "Pause farm when ping is too high",
+    Default = false,
+    Callback = function(value)
+        _G.pingLimiterEnabled = value
+    end
+})
+
+local pingLimiterStatus = Tabs.Main:AddParagraph({
+    Title = "Limiter Status",
+    Content = "OFF"
+})
+
+spawn(function()
+    while wait(1) do
+        pcall(function()
+            if _G.pingLimiterEnabled then
+                local limit = abbreviatePing(_G.customPingLimit)
+                local current = abbreviatePing(getCurrentPing())
+                local status = _G.isPingPaused and "PAUSED" or "ACTIVE"
+                pingLimiterStatus:SetTitle("Limiter: " .. status)
+                pingLimiterStatus:SetDesc("Limit: " .. limit .. "ms | Current: " .. current .. "ms")
+            else
+                local current = abbreviatePing(getCurrentPing())
+                pingLimiterStatus:SetTitle("Limiter: OFF")
+                pingLimiterStatus:SetDesc("Current Ping: " .. current .. "ms")
+            end
+        end)
+    end
+end)
+
+-- ============================================================================
+-- ABA DUPE
+-- ============================================================================
+
+local isDuping = false
+local remainingDupes = 0
+local customDupeAmount = 0
+
+local DupeSection = Tabs.Dupe:AddSection("Dupe System", "copy")
+
+local dupeTimeParagraph = Tabs.Dupe:AddParagraph({
+    Title = "Dupe Timer",
+    Content = "00:00"
+})
+
+-- Auto Farm Dupe Loop
+local function autoFarmDupeLoop()
+    while _G.autoFarmDupeActive do
+        pcall(function()
+            if not _G.isPingPaused then
+                local waitTime = calculateWaitTime()
+                task.wait(waitTime)
+                
+                if LocalPlayer.Character then
+                    for _, item in pairs(LocalPlayer.Character:GetChildren()) do
+                        if item.Name == "Double Weight" then
+                            item:Activate()
+                        end
+                    end
+                end
+            else
+                task.wait(0.5)
+            end
+        end)
+    end
+    _G.farmActive = false
+end
+
+-- Auto Equip and Farm
+local function autoEquipAndFarm()
+    if not _G.autoFarmAfterDupe then return end
+    
+    Notify("Auto Farm", "Starting in 3 seconds...", 3)
+    wait(3)
+    
+    pcall(function()
+        local equipped = 0
+        local batchCount = 0
+        
+        local itemsToEquip = {}
+        for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+            if item.Name == "Double Weight" then
+                table.insert(itemsToEquip, item)
+            end
+        end
+        
+        for _, item in pairs(itemsToEquip) do
+            item.Parent = LocalPlayer.Character
+            if item:FindFirstChild("Handle") then
+                item.Handle.CanCollide = false
+                item.Handle.Massless = true
+                item.Handle.Transparency = 1
+            end
+            equipped = equipped + 1
+            batchCount = batchCount + 1
+            
+            if batchCount >= 100 then
+                wait(0.05)
+                batchCount = 0
+            end
+        end
+        
+        wait(0.5)
+        Notify("Auto Farm", "Equipped " .. equipped .. " weights", 3)
+    end)
+    
+    wait(1)
+    
+    _G.autoFarmDupeActive = true
+    _G.farmActive = true
+    
+    local limiterStatus = _G.pingLimiterEnabled and " (Limiter ON)" or ""
+    Notify("Auto Farm", "Started!" .. limiterStatus, 3)
+    
+    spawn(autoFarmDupeLoop)
+end
+
+-- Start Duping
+local function startDuping(amount)
+    if isDuping then return end
+    isDuping = true
+    remainingDupes = amount
+    
+    Notify("Dupe", "Started Dupe Process", 3)
+    
+    spawn(function()
+        local marketplaceService = game:GetService('MarketplaceService')
+        for remaining = remainingDupes, 1, -1 do
+            if not isDuping then 
+                remainingDupes = remaining
+                break 
+            end
+            local totalSeconds = remaining
+            local minutes = math.floor(totalSeconds / 60)
+            local seconds = math.floor(totalSeconds % 60)
+            
+            dupeTimeParagraph:SetDesc(string.format("%02d:%02d", minutes, seconds))
+            
+            pcall(function()
+                marketplaceService:SignalPromptGamePassPurchaseFinished(LocalPlayer, 5949054, true)
+            end)
+            wait(1)
+        end
+        
+        if isDuping then
+            dupeTimeParagraph:SetDesc("00:00")
+            remainingDupes = 0
+            autoEquipAndFarm()
+        end
+        isDuping = false
+    end)
+end
+
+Tabs.Dupe:AddInput("DupeAmountInput", {
+    Title = "Dupe Amount",
+    Description = "Enter custom dupe amount",
+    Default = "",
+    Placeholder = "Enter amount...",
+    Numeric = true,
+    Finished = true,
+    Callback = function(value)
+        local num = tonumber(value)
+        if num and num > 0 then
+            customDupeAmount = num
+            Notify("Dupe", "Amount set to " .. num, 3)
+        end
+    end
+})
+
+Tabs.Dupe:AddButton({
+    Title = "Start / Stop Dupe",
+    Description = "Start or stop dupe process",
+    Callback = function()
+        if isDuping then
+            isDuping = false
+            Notify("Dupe", "Stopped", 3)
+        elseif customDupeAmount > 0 then
+            startDuping(customDupeAmount - 1)
+        elseif remainingDupes > 0 then
+            startDuping(remainingDupes)
+        else
+            Notify("Error", "Set dupe amount first!", 3)
+        end
+    end
+})
+
+local QuickDupeSection = Tabs.Dupe:AddSection("Quick Dupe", "zap")
+
+Tabs.Dupe:AddButton({
+    Title = "Dupe 830",
+    Description = "Quick dupe 830 times",
+    Callback = function()
+        startDuping(829)
+    end
+})
+
+Tabs.Dupe:AddButton({
+    Title = "Dupe 65",
+    Description = "Quick dupe 65 times",
+    Callback = function()
+        startDuping(64)
+    end
+})
+
+-- ============================================================================
+-- ABA MISC
+-- ============================================================================
+
+local OptimizationSection = Tabs.Misc:AddSection("Optimization", "zap")
+
+Tabs.Misc:AddButton({
+    Title = "Delete All + Anti AFK",
+    Description = "Remove all unnecessary objects and enable anti-afk",
+    Callback = function()
+        pcall(function()
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+            game:GetService("CoreGui").RobloxGui.Backpack.Visible = false
+            LocalPlayer.CameraMaxZoomDistance = 1000
+            
+            pcall(function() game.ReplicatedFirst.TourneyQ:Destroy() end)
+            pcall(function() game:GetService('Lighting').NormalSky:Destroy() end)
+            pcall(function() LocalPlayer.PlayerGui.HUD:Destroy() end)
+            
+            local w = game.Workspace
+            local l = game.Lighting
+            local t = w.Terrain
+            t.WaterWaveSize = 0
+            t.WaterWaveSpeed = 0
+            t.WaterReflectance = 0
+            t.WaterTransparency = 0
+            l.GlobalShadows = false
+            l.FogEnd = 9e9
+            l.Brightness = 0
+            settings().Rendering.QualityLevel = "Level01"
+            
+            for i, v in pairs(game:GetDescendants()) do
+                if v:IsA("Part") or v:IsA("Union") or v:IsA("CornerWedgePart") or v:IsA("TrussPart") then
+                    v.Material = "Plastic"
+                    v.Reflectance = 0
+                elseif v:IsA("Decal") or v:IsA("Texture") then
+                    v.Transparency = 1
+                elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                    v.Lifetime = NumberRange.new(0)
+                elseif v:IsA("Explosion") then
+                    v.BlastPressure = 1
+                    v.BlastRadius = 1
+                elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") then
+                    v.Enabled = false
+                elseif v:IsA("MeshPart") then
+                    v.Material = "Plastic"
+                    v.Reflectance = 0
+                    v.TextureID = 10385902758728957
+                end
+            end
+            
+            for i, e in pairs(l:GetChildren()) do
+                if e:IsA("BlurEffect") or e:IsA("SunRaysEffect") or e:IsA("ColorCorrectionEffect") or e:IsA("BloomEffect") or e:IsA("DepthOfFieldEffect") then
+                    e.Enabled = false
+                end
+            end
+            
+            pcall(function() sethiddenproperty(l, 'Technology', 'Compatibility') end)
+            
+            local virtualUser = game:GetService('VirtualUser')
+            LocalPlayer.Idled:Connect(function()
+                virtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                wait(1)
+                virtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            end)
+            
+            for _, obj in pairs(workspace:GetChildren()) do
+                if obj.Name ~= LocalPlayer.Name and 
+                   obj.Name ~= 'Terrain' and 
+                   obj.Name ~= 'Baseplate' and 
+                   obj.Name ~= 'Camera' and
+                   obj.Name ~= 'SafeZone' and
+                   obj.Name ~= 'SafezonePlatform' then
+                    pcall(function() obj:Destroy() end)
+                end
+            end
+            
+            Notify("FPS Boost", "Successfully applied!", 3)
+        end)
+    end
+})
+
+local VisualSection = Tabs.Misc:AddSection("Visual", "eye")
+
+local isDay = true
+Tabs.Misc:AddButton({
+    Title = "Day/Night Toggle",
+    Description = "Toggle between day and night",
+    Callback = function()
+        local Lighting = game:GetService('Lighting')
+        if isDay then
+            Lighting.ClockTime = 0
+            isDay = false
+            Notify("Visual", "Night mode enabled", 2)
+        else
+            Lighting.ClockTime = 12
+            isDay = true
+            Notify("Visual", "Day mode enabled", 2)
+        end
+    end
+})
+
+Tabs.Misc:AddButton({
+    Title = "Animation Lift",
+    Description = "Toggle character anchor for animation lift",
+    Callback = function()
+        pcall(function()
+            if LocalPlayer.Character then
+                for _, part in pairs(LocalPlayer.Character:GetChildren()) do
+                    if part:IsA("MeshPart") then
+                        part.Anchored = not part.Anchored
+                    end
+                end
+                Notify("Animation", "Toggled", 2)
+            end
+        end)
+    end
+})
+
+Tabs.Misc:AddToggle("AnchorPlayerToggle", {
+    Title = "Anchor Player",
+    Description = "Anchor your character in place",
+    Default = false,
+    Callback = function(value)
+        pcall(function()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.Anchored = value
+            end
+        end)
+    end
+})
+
+-- COMBAT SECTION
+local CombatSection = Tabs.Misc:AddSection("Combat", "sword")
+
+local lastAttackerParagraph = Tabs.Misc:AddParagraph({
+    Title = "Last Attacker",
+    Content = "None"
+})
+
+-- Detectar último atacante
+spawn(function()
+    local RunService = game:GetService("RunService")
+    local lastCheck = 0
+    RunService.RenderStepped:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastCheck < 0.1 then return end
+        lastCheck = currentTime
+        
+        pcall(function()
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+            if not humanoid then return end
+            
+            local creator = humanoid:FindFirstChild("creator")
+            if not creator then return end
+            
+            local attackerName = tostring(creator.Value)
+            if attackerName and attackerName ~= "" and attackerName ~= _G.lastAttacker then
+                _G.lastAttacker = attackerName
+                lastAttackerParagraph:SetDesc(attackerName)
+            end
+        end)
+    end)
+end)
+
+Tabs.Misc:AddToggle("AntiHitToggle", {
+    Title = "Anti-Hit",
+    Description = "Automatically counter attack when hit",
+    Default = false,
+    Callback = function(value)
+        _G.antiHitEnabled = value
+    end
+})
+
+-- Sistema Anti-Hit
+spawn(function()
+    local RunService = game:GetService("RunService")
+    local lastCheck = 0
+    RunService.RenderStepped:Connect(function()
+        if not _G.antiHitEnabled then return end
+        
+        local currentTime = tick()
+        if currentTime - lastCheck < 0.1 then return end
+        lastCheck = currentTime
+        
+        pcall(function()
+            local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+            if not humanoid then return end
+            
+            local creator = humanoid:FindFirstChild("creator")
+            if not creator then return end
+            
+            local attackerName = tostring(creator.Value)
+            local attackerChar = workspace:FindFirstChild(attackerName)
+            
+            if attackerChar then
+                local targetTorso = attackerChar:FindFirstChild("Torso") or attackerChar:FindFirstChild("HumanoidRootPart")
+                if not targetTorso then return end
+                
+                local tool = LocalPlayer.Backpack:FindFirstChild("Boxing")
+                if not tool then return end
+                
+                local args = {
+                    [1] = LocalPlayer.Character:FindFirstChild("RightHand"),
+                    [2] = "RightPunch",
+                    [3] = targetTorso,
+                    [4] = 5,
+                    [5] = true,
+                    [6] = "RightPunch",
+                    [7] = tool.Handle.Hit,
+                    [8] = 5
+                }
+                game:GetService("ReplicatedStorage").Remotes.Human_Punch:FireServer(unpack(args))
+            end
+        end)
+    end)
+end)
+
+-- LOOP KILL SECTION
+local LoopKillSection = Tabs.Misc:AddSection("Loop Kill", "target")
+
+local playerDropdown = Tabs.Misc:AddDropdown("PlayerDropdown", {
+    Title = "Select Target",
+    Description = "Choose player for loop kill",
+    Values = getAllPlayerNames(),
+    Multi = false,
+    Default = nil,
+    Callback = function(value)
+        if value and value ~= "" then
+            local targetPlayer = Players:FindFirstChild(value)
+            if targetPlayer then
+                _G.loopKillTarget = targetPlayer
+            else
+                _G.loopKillTarget = nil
+            end
+        else
+            _G.loopKillTarget = nil
+        end
+    end
+})
+
+-- Atualizar lista de players
+spawn(function()
+    while wait(3) do
+        pcall(function()
+            local newPlayerList = getAllPlayerNames()
+            playerDropdown:SetValues(newPlayerList)
+        end)
+    end
+end)
+
+Players.PlayerAdded:Connect(function()
+    wait(0.5)
+    pcall(function()
+        local newPlayerList = getAllPlayerNames()
+        playerDropdown:SetValues(newPlayerList)
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if _G.loopKillTarget == player then
+        _G.loopKillTarget = nil
+        _G.loopKillEnabled = false
+        Fluent.Options.LoopKillToggle:SetValue(false)
+    end
+    wait(0.5)
+    pcall(function()
+        local newPlayerList = getAllPlayerNames()
+        playerDropdown:SetValues(newPlayerList)
+    end)
+end)
+
+Tabs.Misc:AddToggle("LoopKillToggle", {
+    Title = "Loop Kill",
+    Description = "Continuously attack selected target",
+    Default = false,
+    Callback = function(value)
+        if value and not _G.loopKillTarget then
+            Notify("Loop Kill", "Select a target first!", 3)
+            Fluent.Options.LoopKillToggle:SetValue(false)
+            return
+        end
+        _G.loopKillEnabled = value
+    end
+})
+
+-- Sistema Loop Kill
+spawn(function()
+    while true do
+        wait(0.05)
+        if _G.loopKillEnabled and _G.loopKillTarget then
+            pcall(function()
+                if not _G.loopKillTarget or not _G.loopKillTarget.Character then return end
+                
+                local targetTorso = _G.loopKillTarget.Character:FindFirstChild("Torso") or _G.loopKillTarget.Character:FindFirstChild("HumanoidRootPart")
+                local targetHead = _G.loopKillTarget.Character:FindFirstChild("Head")
+                if not targetTorso and not targetHead then return end
+                
+                local tool = LocalPlayer.Backpack:FindFirstChild("Boxing")
+                if tool then
+                    local args = {
+                        [1] = LocalPlayer.Character:FindFirstChild("LeftHand"),
+                        [2] = "LeftPunch",
+                        [3] = targetHead or targetTorso,
+                        [4] = 5,
+                        [5] = true,
+                        [6] = "RightPunch",
+                        [7] = tool.Handle.Hit,
+                        [8] = 5
+                    }
+                    game:GetService("ReplicatedStorage").Remotes.Human_Punch:FireServer(unpack(args))
+                end
+            end)
+        end
+    end
+end)
+
+-- ============================================================================
+-- ABA TELEPORTS
+-- ============================================================================
+
+local TeleportSection = Tabs.Teleports:AddSection("Teleport Options", "map-pin")
+
+Tabs.Teleports:AddButton({
+    Title = "TP High",
+    Description = "Teleport 1000 studs up",
+    Callback = function()
+        pcall(function()
+            LocalPlayer.Character.HumanoidRootPart.CFrame = 
+                workspace.Terrain.CFrame + Vector3.new(0, 1000, 0)
+            local baseplate = Instance.new("Part", workspace)
+            baseplate.Size = Vector3.new(1000, 1, 1000)
+            baseplate.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0, -4, 0)
+            baseplate.Anchored = true
+            baseplate.Transparency = 1
+            Notify("Teleport", "Teleported High", 2)
+        end)
+    end
+})
+
+Tabs.Teleports:AddButton({
+    Title = "TP Very High",
+    Description = "Teleport 50000 studs up",
+    Callback = function()
+        pcall(function()
+            LocalPlayer.Character.HumanoidRootPart.CFrame = 
+                LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0, 50000, 0)
+            local baseplate = Instance.new("Part", workspace)
+            baseplate.Size = Vector3.new(1000, 1, 1000)
+            baseplate.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0, -4, 0)
+            baseplate.Anchored = true
+            baseplate.Transparency = 1
+            Notify("Teleport", "Teleported Very High", 2)
+        end)
+    end
+})
+
+-- ============================================================================
+-- ABA STATS
+-- ============================================================================
+
+local StatsSection = Tabs.Stats:AddSection("Strength Statistics", "trending-up")
+
+local totalStrengthParagraph = Tabs.Stats:AddParagraph({
+    Title = "Total Strength",
+    Content = "0"
+})
+
+local strengthGainedParagraph = Tabs.Stats:AddParagraph({
+    Title = "Strength Gained",
+    Content = "0"
+})
+
+local farmTimeParagraph = Tabs.Stats:AddParagraph({
+    Title = "Farm Time",
+    Content = "0 Seconds"
+})
+
+local RatesSection = Tabs.Stats:AddSection("Gain Rates", "activity")
+
+local spsParagraph = Tabs.Stats:AddParagraph({
+    Title = "Strength Per Second",
+    Content = "0"
+})
+
+local spmParagraph = Tabs.Stats:AddParagraph({
+    Title = "Strength Per Minute",
+    Content = "0"
+})
+
+local sphParagraph = Tabs.Stats:AddParagraph({
+    Title = "Strength Per Hour",
+    Content = "0"
+})
+
+local spdParagraph = Tabs.Stats:AddParagraph({
+    Title = "Strength Per Day",
+    Content = "0"
+})
+
+local spmthParagraph = Tabs.Stats:AddParagraph({
+    Title = "Strength Per Month",
+    Content = "0"
+})
+
+local spyParagraph = Tabs.Stats:AddParagraph({
+    Title = "Strength Per Year",
+    Content = "0"
+})
+
+local initialStrength = 0
+local farmStartTime = nil
+local isFarmingStats = false
+
+-- Monitorar Strength Total
+spawn(function()
+    wait(2)
+    pcall(function()
+        local replicatedStorage = game:GetService("ReplicatedStorage")
+        local dataFolder = replicatedStorage:WaitForChild("Data", 5)
+        if dataFolder then
+            local playerFolder = dataFolder:WaitForChild(LocalPlayer.Name, 5)
+            if playerFolder then
+                local strengthValue = playerFolder:WaitForChild("Strength", 5)
+                if strengthValue then
+                    initialStrength = strengthValue.Value
+                    local abbrev = formatNumberAbbrev(strengthValue.Value, 2)
+                    totalStrengthParagraph:SetDesc(tostring(math.floor(strengthValue.Value)) .. " (" .. abbrev .. ")")
+                    strengthGainedParagraph:SetDesc("0")
+                    
+                    strengthValue:GetPropertyChangedSignal("Value"):Connect(function()
+                        local current = strengthValue.Value
+                        local gained = current - initialStrength
+                        local abbrevCurrent = formatNumberAbbrev(current, 2)
+                        local abbrevGained = formatNumberAbbrev(gained, 2)
+                        totalStrengthParagraph:SetDesc(tostring(math.floor(current)) .. " (" .. abbrevCurrent .. ")")
+                        strengthGainedParagraph:SetDesc(abbrevGained)
+                    end)
+                end
+            end
+        end
+    end)
+end)
+
+-- Monitorar Farm Time
+spawn(function()
+    local function formatFarmTime(elapsed)
+        local days = math.floor(elapsed / 86400)
+        local hours = math.floor((elapsed % 86400) / 3600)
+        local minutes = math.floor((elapsed % 3600) / 60)
+        local seconds = elapsed % 60
+        
+        if elapsed < 60 then
+            return string.format("%d Second%s", seconds, seconds ~= 1 and "s" or "")
+        end
+        
+        if elapsed < 3600 then
+            return string.format("%d Minute%s, %d Second%s", 
+                minutes, minutes ~= 1 and "s" or "",
+                seconds, seconds ~= 1 and "s" or "")
+        end
+        
+        if elapsed < 86400 then
+            return string.format("%d Hour%s, %d Minute%s", 
+                hours, hours ~= 1 and "s" or "",
+                minutes, minutes ~= 1 and "s" or "")
+        end
+        
+        return string.format("%dd, %d Hour%s, %d Minute%s", 
+            days,
+            hours, hours ~= 1 and "s" or "",
+            minutes, minutes ~= 1 and "s" or "")
+    end
+    
+    while wait(1) do
+        if _G.farmActive and not isFarmingStats then
+            isFarmingStats = true
+            farmStartTime = os.time()
+        elseif not _G.farmActive and isFarmingStats then
+            isFarmingStats = false
+            farmTimeParagraph:SetDesc("0 Seconds")
+        end
+        
+        if isFarmingStats and farmStartTime then
+            local elapsed = os.time() - farmStartTime
+            farmTimeParagraph:SetDesc(formatFarmTime(elapsed))
+        end
+    end
+end)
+
+-- Monitorar Taxas de Ganho
+spawn(function()
+    wait(3)
+    pcall(function()
+        local strengthValue = game:GetService('Players').LocalPlayer.leaderstats.Strength
+        local previousStrength = strengthValue.Value
+        
+        while true do
+            wait(1)
+            local currentStrength = strengthValue.Value
+            local strengthGained = currentStrength - previousStrength
+            
+            spsParagraph:SetDesc(formatNumberAbbrev(strengthGained, 1))
+            spmParagraph:SetDesc(formatNumberAbbrev(strengthGained * 60, 1))
+            sphParagraph:SetDesc(formatNumberAbbrev(strengthGained * 3600, 1))
+            spdParagraph:SetDesc(formatNumberAbbrev(strengthGained * 86400, 1))
+            spmthParagraph:SetDesc(formatNumberAbbrev(strengthGained * 2592000, 1))
+            spyParagraph:SetDesc(formatNumberAbbrev(strengthGained * 31536000, 1))
+            
+            previousStrength = currentStrength
+        end
+    end)
+end)
+
+-- ============================================================================
+-- ABA SETTINGS
+-- ============================================================================
+
+local InterfaceSection = Tabs.Settings:AddSection("Interface", "monitor")
+
+Tabs.Settings:AddToggle("TransparencyToggle", {
+    Title = "Transparency",
+    Description = "Toggle window transparency",
+    Default = false,
+    Callback = function(value)
+        Fluent:ToggleTransparency(value)
+    end
+})
+
+Tabs.Settings:AddKeybind("MinimizeKeybind", {
+    Title = "Minimize Key",
+    Description = "Set key to minimize interface",
+    Default = "LeftControl"
+})
+
+Fluent.MinimizeKeybind = Fluent.Options.MinimizeKeybind
+
+local ThemeSection = Tabs.Settings:AddSection("Theme", "palette")
+
+local ThemeDropdown = Tabs.Settings:AddDropdown("ThemeDropdown", {
+    Title = "Select Theme",
+    Description = "Change interface theme",
+    Values = Fluent.Themes,
+    Default = "Darker",
+    Callback = function(value)
+        Fluent:SetTheme(value)
+        Notify("Theme", "Changed to " .. value, 2)
+    end
+})
+
+Tabs.Settings:AddToggle("AcrylicToggle", {
+    Title = "Acrylic Effect",
+    Description = "Enable acrylic blur effect (requires graphic quality 8+)",
+    Default = true,
+    Callback = function(value)
+        Fluent:ToggleAcrylic(value)
+    end
+})
+
+local InfoSection = Tabs.Settings:AddSection("Information", "info")
+
+Tabs.Settings:AddParagraph({
+    Title = "Ghost Hub Premium",
+    Content = "Made by Darkxz\nPremium Edition\nFluent Plus UI\n\nI hope you enjoy it! :D"
+})
+
+Tabs.Settings:AddButton({
+    Title = "Join Discord",
+    Description = "Copy Discord invite to clipboard",
+    Callback = function()
+        setclipboard("https://discord.gg/your-invite-here")
+        Notify("Discord", "Invite copied to clipboard!", 3)
+    end
+})
+
+local CreditsSection = Tabs.Settings:AddSection("Credits", "users")
+
+Tabs.Settings:AddParagraph({
+    Title = "Development",
+    Content = "Script: Darkxz\nUI Library: Fluent Plus\nVersion: 2.0"
+})
+
+-- ============================================================================
+-- NOTIFICAÇÃO FINAL
+-- ============================================================================
+
+wait(1)
+Notify("Ghost Hub Premium", "Successfully loaded!", 5)
+Notify("Welcome", "Enjoy your premium experience!", 3)
